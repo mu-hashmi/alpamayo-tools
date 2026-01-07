@@ -1,12 +1,16 @@
 # alpamayo-tools
 
-Unofficial community tools for NVIDIA's [Alpamayo-R1](https://developer.nvidia.com/drive/alpamayo) and [PhysicalAI-AV](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles) ecosystem.
+Community tools for NVIDIA's [Alpamayo-R1](https://developer.nvidia.com/drive/alpamayo) and [PhysicalAI-AV](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles) ecosystem.
 
-## Features
+## Overview
 
-- **PyTorch Dataset** - Clean `torch.utils.data.Dataset` wrapper for PhysicalAI-AV
-- **Alpamayo Inference** - Simple API for running Alpamayo-R1 inference
-- **CoC Embeddings** - Chain-of-Cognition text embedding pipeline
+This package provides:
+
+- **`PhysicalAIDataset`** — PyTorch Dataset that handles video decoding, egomotion interpolation, and coordinate transformation to ego-frame
+- **`alpamayo-generate-labels`** — CLI for generating teacher labels at scale with checkpointing and multi-GPU sharding
+- **`CoCEmbedder`** — Sentence embedding for Chain-of-Cognition reasoning text
+
+All trajectory data is automatically transformed to the ego vehicle's local frame at t0, which is what Alpamayo-R1 and most trajectory prediction models expect.
 
 ## Installation
 
@@ -14,60 +18,68 @@ Unofficial community tools for NVIDIA's [Alpamayo-R1](https://developer.nvidia.c
 pip install alpamayo-tools
 ```
 
-For inference capabilities (requires ~24GB+ GPU):
+With optional dependencies:
 ```bash
-pip install alpamayo-tools[inference]
+pip install alpamayo-tools[embeddings]  # CoC embeddings
+pip install alpamayo-tools[inference]   # Alpamayo inference wrapper
+pip install alpamayo-tools[all]         # Everything
+```
 
-# Also install alpamayo_r1 from GitHub:
+For inference, also install alpamayo_r1:
+```bash
 pip install git+https://github.com/NVlabs/alpamayo.git
 ```
 
-For CoC embeddings:
-```bash
-pip install alpamayo-tools[embeddings]
-```
+## Usage
 
-## Quick Start
-
-### PyTorch DataLoader
+### DataLoader
 
 ```python
-from alpamayo_tools import PhysicalAIDataset, DatasetConfig
+from alpamayo_tools import PhysicalAIDataset, DatasetConfig, collate_fn
 from torch.utils.data import DataLoader
 
-# Configure dataset
 config = DatasetConfig(
-    clip_ids=["clip_001", "clip_002", "clip_003"],
+    clip_ids=["clip_001", "clip_002"],
     cameras=("camera_front_wide_120fov", "camera_front_tele_30fov"),
     num_frames=4,
-    stream=True,  # Stream from HuggingFace
+    stream=True,
 )
 
-# Create dataset and dataloader
 dataset = PhysicalAIDataset(config)
-loader = DataLoader(dataset, batch_size=4, num_workers=2)
+loader = DataLoader(dataset, batch_size=4, collate_fn=collate_fn)
 
 for batch in loader:
-    frames = batch["frames"]  # (B, N_cameras, num_frames, 3, H, W)
-    ego_history = batch["ego_history_xyz"]  # (B, 16, 3)
-    # ... your training code
+    frames = batch["frames"]  # (B, N_cam, T, 3, H, W)
+    history = batch["ego_history_xyz"]  # (B, 16, 3)
+    future = batch["ego_future_xyz"]  # (B, 64, 3)
 ```
 
-### Alpamayo Inference
+### Inference
 
 ```python
 from alpamayo_tools.inference import AlpamayoPredictor
+import torch
 
-# Load model (requires alpamayo_r1 package)
-predictor = AlpamayoPredictor.from_pretrained(
-    model_id="nvidia/Alpamayo-R1-10B",
-    dtype=torch.bfloat16,
-)
-
-# Run inference
+predictor = AlpamayoPredictor.from_pretrained("nvidia/Alpamayo-R1-10B", dtype=torch.bfloat16)
 result = predictor.predict_from_clip("clip_001", t0_us=5_100_000)
-print(result.reasoning_text)
+
 print(result.trajectory_xyz.shape)  # (64, 3)
+print(result.reasoning_text)
+```
+
+### Generate Teacher Labels
+
+```bash
+alpamayo-generate-labels \
+    --clip-ids-file train_clips.parquet \
+    --output-dir ./labels
+
+# Multi-GPU
+CUDA_VISIBLE_DEVICES=0 alpamayo-generate-labels --clip-ids-file clips.parquet --output-dir ./labels --shard 0/4
+CUDA_VISIBLE_DEVICES=1 alpamayo-generate-labels --clip-ids-file clips.parquet --output-dir ./labels --shard 1/4
+
+# Resume after interruption
+alpamayo-generate-labels --clip-ids-file clips.parquet --output-dir ./labels --resume
 ```
 
 ### CoC Embeddings
@@ -76,57 +88,33 @@ print(result.trajectory_xyz.shape)  # (64, 3)
 from alpamayo_tools import CoCEmbedder
 
 embedder = CoCEmbedder()
-
-texts = [
-    "The vehicle ahead is braking. Reduce speed to maintain safe following distance.",
-    "Clear road ahead. Continue at current speed.",
-]
-embeddings = embedder.embed(texts)
-print(embeddings.shape)  # (2, 384)
+embeddings = embedder.embed(["The vehicle ahead is braking."])  # (1, 384)
 ```
 
-### CLI: Generate Teacher Labels
-
-```bash
-# Generate labels for a list of clips
-alpamayo-generate-labels \
-    --clip-ids-file train_clips.parquet \
-    --output-dir ./labels \
-    --shard 0/2  # For multi-GPU parallelism
-```
-
-## Dataset Output Format
-
-Each sample from `PhysicalAIDataset` contains:
+## Dataset Output
 
 | Key | Shape | Description |
 |-----|-------|-------------|
+| `frames` | `(N_cam, T, 3, H, W)` | Camera frames (uint8) |
+| `ego_history_xyz` | `(16, 3)` | Past 1.6s trajectory in ego frame |
+| `ego_history_rot` | `(16, 3, 3)` | Past rotations in ego frame |
+| `ego_future_xyz` | `(64, 3)` | Future 6.4s trajectory in ego frame |
+| `ego_future_rot` | `(64, 3, 3)` | Future rotations in ego frame |
 | `clip_id` | `str` | Clip identifier |
 | `t0_us` | `int` | Reference timestamp (microseconds) |
-| `frames` | `(N_cam, T, 3, H, W)` | Camera frames (uint8) |
-| `camera_indices` | `(N_cam,)` | Camera index identifiers |
-| `ego_history_xyz` | `(16, 3)` | Past trajectory in ego frame |
-| `ego_history_rot` | `(16, 3, 3)` | Past rotations in ego frame |
-| `ego_future_xyz` | `(64, 3)` | Future trajectory (training only) |
-| `ego_future_rot` | `(64, 3, 3)` | Future rotations (training only) |
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+
 - PyTorch 2.0+
-- NVIDIA GPU with 24GB+ VRAM (for inference)
+- For inference: GPU with 24GB+ VRAM
 
-## Related Resources
+## Related
 
 - [Alpamayo-R1 Model](https://huggingface.co/nvidia/Alpamayo-R1-10B)
 - [PhysicalAI-AV Dataset](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles)
 - [Alpamayo GitHub](https://github.com/NVlabs/alpamayo)
-- [AlpaSim Simulator](https://github.com/NVlabs/alpasim)
-
-## Disclaimer
-
-This is an unofficial community project and is not affiliated with NVIDIA Corporation.
 
 ## License
 
-MIT License
+MIT
