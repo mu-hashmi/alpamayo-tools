@@ -53,9 +53,9 @@ dev = [
 alpamayo-generate-labels = "alpamayo_tools.cli.generate_labels:main"
 
 [project.urls]
-Homepage = "https://github.com/your-username/alpamayo-tools"
-Documentation = "https://github.com/your-username/alpamayo-tools#readme"
-Repository = "https://github.com/your-username/alpamayo-tools"
+Homepage = "https://github.com/mu-hashmi/alpamayo-tools"
+Documentation = "https://github.com/mu-hashmi/alpamayo-tools#readme"
+Repository = "https://github.com/mu-hashmi/alpamayo-tools"
 
 [build-system]
 requires = ["hatchling"]
