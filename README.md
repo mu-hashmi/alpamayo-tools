@@ -6,11 +6,13 @@ Community tools for NVIDIA's [Alpamayo-R1](https://developer.nvidia.com/drive/al
 
 This package provides:
 
-- **`PhysicalAIDataset`** — PyTorch Dataset that handles video decoding, egomotion interpolation, and coordinate transformation to ego-frame
-- **`alpamayo-generate-labels`** — CLI for generating teacher labels at scale with checkpointing and multi-GPU sharding
-- **`CoCEmbedder`** — Sentence embedding for Chain-of-Cognition reasoning text
+- **`PhysicalAIDataset`** — PyTorch Dataset that handles video decoding, egomotion interpolation, and coordinate transformation to ego-frame. Useful for training your own models on PhysicalAI-AV without writing the data loading boilerplate.
 
-All trajectory data is automatically transformed to the ego vehicle's local frame at t0, which is what Alpamayo-R1 and most trajectory prediction models expect.
+- **`alpamayo-generate-labels`** — CLI for running Alpamayo-R1 inference at scale. Supports checkpointing, resume, and multi-GPU sharding. Useful for distillation workflows where you need teacher labels for thousands of clips.
+
+- **`CoCEmbedder`** — Sentence embedding for Chain-of-Cognition reasoning text. Useful for retrieval, clustering, or analyzing Alpamayo's reasoning outputs.
+
+All trajectory data is automatically transformed to the ego vehicle's local frame at t0 (the coordinate system Alpamayo-R1 expects).
 
 ## Installation
 
