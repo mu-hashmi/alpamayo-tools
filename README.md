@@ -102,7 +102,7 @@ embeddings = embedder.embed(["The vehicle ahead is braking."])  # (1, 384)
 | `ego_history_rot` | `(16, 3, 3)` | Past rotations in ego frame |
 | `ego_future_xyz` | `(64, 3)` | Future 6.4s trajectory in ego frame |
 | `ego_future_rot` | `(64, 3, 3)` | Future rotations in ego frame |
-| `clip_id` | `str` | Clip identifier |
+| `clip_id` | `str` | Clip identifier (`clip_ids` when batched) |
 | `t0_us` | `int` | Reference timestamp (microseconds) |
 
 ## Requirements
